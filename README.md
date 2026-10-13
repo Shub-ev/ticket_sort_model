@@ -37,7 +37,13 @@ Run the pipeline from the repository root:
 python data/validate_dataset.py
 python data/split_data.py
 python training/train.py
+python main.py
 ```
+
+`main.py` creates `data/processed/ticket_test_set.json` from the held-out
+`test.csv` split if it does not exist, then loads the trained model and reports
+accuracy and per-group metrics. Keep this file private because its ticket text
+comes from the incident dataset.
 
 The split step removes exact duplicate ticket texts after checking that a
 ticket text does not have conflicting assignment-group labels. It then makes
