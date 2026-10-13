@@ -1,4 +1,3 @@
-
 from pathlib import Path
 
 import pandas as pd
@@ -12,42 +11,49 @@ OUTPUT_DIR = PROJECT_ROOT / "data" / "processed" / "splits"
 RANDOM_STATE = 42
 
 
-def split_data():
-    df = pd.read_csv(INPUT_PATH)
+def prepare_dataset(df):
+    required_columns = {"text", "Assignment Group"}
+    missing_columns = required_columns - set(df.columns)
+    if missing_columns:
+        raise ValueError(f"Missing required columns: {sorted(missing_columns)}")
 
-    df = df.dropna(subset=["text", "Assignment Group"]).copy()
-
-    # Remove empty text and labels.
-    df["text"] = df["text"].astype(str).str.strip()
+    df = df[["text", "Assignment Group"]].copy()
+    df["text"] = df["text"].fillna("").astype(str).str.strip()
     df["Assignment Group"] = (
-        df["Assignment Group"].astype(str).str.strip()
+        df["Assignment Group"].fillna("").astype(str).str.strip()
     )
+    df = df[df["text"].ne("") & df["Assignment Group"].ne("")].copy()
 
-    df = df[
-        df["text"].ne("")
-        & df["Assignment Group"].ne("")
-    ].copy()
-
-    # Each class needs enough examples for a stratified split.
-    group_counts = df["Assignment Group"].value_counts()
-
-    rare_groups = group_counts[group_counts < 3]
-    if not rare_groups.empty:
+    conflicting = (
+        df.groupby("text")["Assignment Group"].nunique().loc[lambda counts: counts > 1]
+    )
+    if not conflicting.empty:
         raise ValueError(
-            "Some assignment groups have fewer than 3 tickets. "
-            "Review these groups before splitting:\n"
-            f"{rare_groups.to_string()}"
+            f"{len(conflicting)} identical ticket texts have conflicting labels. "
+            "Resolve these labels before splitting."
         )
 
-    # Reserve 10% for the final test set.
+    # Keep one copy of each exact ticket so duplicates cannot leak across splits
+    # or overwhelm training through repeated examples.
+    return df.drop_duplicates(subset=["text"], keep="first").reset_index(drop=True)
+
+
+def create_splits(df):
+    class_counts = df["Assignment Group"].value_counts()
+    rare_classes = class_counts[class_counts < 3]
+    if not rare_classes.empty:
+        raise ValueError(
+            "Each assignment group needs at least 3 distinct tickets for "
+            "train/validation/test splits:\n"
+            f"{rare_classes.to_string()}"
+        )
+
     train_val, test = train_test_split(
         df,
         test_size=0.10,
         random_state=RANDOM_STATE,
         stratify=df["Assignment Group"],
     )
-
-    # Split the remaining 90% into 80% train and 10% validation.
     train, validation = train_test_split(
         train_val,
         test_size=1 / 9,
@@ -55,20 +61,37 @@ def split_data():
         stratify=train_val["Assignment Group"],
     )
 
+    splits = {"train": train, "validation": validation, "test": test}
+    expected_classes = set(class_counts.index)
+    for name, split in splits.items():
+        missing_classes = expected_classes - set(split["Assignment Group"])
+        if missing_classes:
+            raise ValueError(
+                f"The {name} split is missing assignment groups: "
+                f"{sorted(missing_classes)}"
+            )
+
+    return splits
+
+
+def split_data():
+    if not INPUT_PATH.is_file():
+        raise FileNotFoundError(f"Cleaned dataset not found: {INPUT_PATH}")
+
+    df = prepare_dataset(pd.read_csv(INPUT_PATH))
+    splits = create_splits(df)
+
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    for name, split in splits.items():
+        split.to_csv(OUTPUT_DIR / f"{name}.csv", index=False)
 
-    train.to_csv(OUTPUT_DIR / "train.csv", index=False)
-    validation.to_csv(OUTPUT_DIR / "validation.csv", index=False)
-    test.to_csv(OUTPUT_DIR / "test.csv", index=False)
+    print(f"Distinct usable tickets: {len(df):,}")
+    for name, split in splits.items():
+        print(f"{name.capitalize()} tickets: {len(split):,}")
+    print("\nAssignment groups (distinct tickets):")
+    print(df["Assignment Group"].value_counts().to_string())
+    print(f"\nSaved leakage-free splits to: {OUTPUT_DIR}")
 
-    print(f"Total tickets:     {len(df):,}")
-    print(f"Training tickets:  {len(train):,}")
-    print(f"Validation tickets:{len(validation):,}")
-    print(f"Test tickets:      {len(test):,}")
 
-    print("\nTraining distribution:")
-    print(train["Assignment Group"].value_counts().to_string())
-
-    print("\nSaved datasets to:", OUTPUT_DIR)
-
-split_data()
+if __name__ == "__main__":
+    split_data()

@@ -1,7 +1,8 @@
-from pathlib import Path
-import pandas as pd
-import re
 import html
+import re
+from pathlib import Path
+
+import pandas as pd
 from bs4 import BeautifulSoup
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -16,10 +17,6 @@ REQUIRED_COLUMNS = [
     "Description",
     "Assignment Group",
 ]
-
-print(INPUT_PATH)
-
-
 
 def clean_html(text: str) -> str:
     if not text:
@@ -44,15 +41,18 @@ def clean_html(text: str) -> str:
 
 
 def validate_dataset():
-    # check if Input path exists (file and directory)
-    if not INPUT_PATH.exists():
+    if not INPUT_PATH.is_file():
         raise FileNotFoundError(f"CSV file not found at {INPUT_PATH}")
 
 
     # read CSV file using pandas into pandas DataFrame
     # A DataFrame is a table-like data structure containing rows and columns.
     # utf-8-sig handles UTF-8 files that may contain byte-order-mark (BOM)
-    df = pd.read_csv(INPUT_PATH, encoding="utf-8-sig")
+    df = pd.read_csv(
+        INPUT_PATH,
+        encoding="utf-8-sig",
+        engine="python",
+    )
 
 
     # df.columns get all column names
@@ -133,4 +133,5 @@ def validate_dataset():
     print(f"\nSaved cleaned dataset: {OUTPUT_PATH}")
 
 
-validate_dataset()
+if __name__ == "__main__":
+    validate_dataset()
